@@ -2,362 +2,153 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>Biểu đồ dữ liệu nước</title>
+    <title>TraiCa - Hệ thống theo dõi trại cá</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <style>
-    body { font-family: sans-serif; margin: 20px; }
-    .controls { margin-bottom: 10px; display: flex; gap: 10px; flex-wrap: wrap; }
-    
-    @keyframes blink {
-        0%, 50% { opacity: 1; }
-        51%, 100% { opacity: 0.3; }
-    }
-    
-    .status-container {
-        background-color: #f5f5f5;
-        padding: 10px;
-        border-radius: 5px;
-        margin-bottom: 10px;
-    }
-    </style>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <h2>Biểu đồ nhiệt độ và độ đục theo thời gian</h2>
-
-    <div class="controls">
-        <label>Từ: <input type="date" id="from-date"></label>
-        <label>Đến: <input type="date" id="to-date"></label>
-        <button onclick="loadHistory()">Lọc dữ liệu</button>
-        <button onclick="enableRealtime()">Chế độ thời gian thực</button>
+    <!-- Header -->
+    <div class="header">
+        <div class="logo">
+            <i class="fas fa-fish"></i>
+            TraiCa
+        </div>
+        <button class="logout-btn">
+            <i class="fas fa-sign-out-alt"></i>
+            Logout
+        </button>   
     </div>
 
-    <div class="controls">
-        <label>Điều khiển Servo:</label>
-        <button onclick="controlServo(1)" style="background-color: #4CAF50; color: white; margin-right: 5px;">Bật Servo (1)</button>
-        <button onclick="controlServo(0)" style="background-color: #f44336; color: white;">Tắt Servo (0)</button>
-        <span id="servo-status" style="margin-left: 10px; font-weight: bold;"></span>
-    </div>
+    <!-- Main Container -->
+    <div class="container">
+        <h1 class="title">Dashboard</h1>
+        <p class="subtitle">Welcome back, Quản lý hệ thống trại cá thông minh</p>
 
-    <div class="controls">
-        <label>Trạng thái hệ thống:</label>
-        <span id="food-level" style="margin-right: 15px; font-weight: bold; color: #2196F3;">Thức ăn: --</span>
-        <span id="person-detection" style="font-weight: bold; color: #FF9800;">Người: --</span>
-    </div>
-
-    <canvas id="myChart" width="600" height="300"></canvas>
-
-    <script>
-    const labels = []; // thời gian
-    const tempData = []; // nhiệt độ
-    const turbData = []; // độ đục
-
-    const ctx = document.getElementById('myChart').getContext('2d');
-    const myChart = new Chart(ctx, {
-        type: 'line',
-        data: {
-        labels: labels,
-        datasets: [
-            {
-                label: 'Nhiệt độ (°C)',
-                data: tempData,
-                borderWidth: 2,
-                borderColor: 'red',
-                fill: false
-            },
-            {
-                label: 'Độ đục (ADC)',
-                data: turbData,
-                borderWidth: 2,
-                borderColor: 'blue',
-                fill: false
-            }
-        ]
-        },
-        options: {
-            scales: {
-                x: {
-                    title: {
-                        display: true,
-                        text: 'Thời gian'
-                    }
-                },
-                y: {
-                beginAtZero: true
-                }
-            }
-        }
-    });
-
-    // 📡 Nhận dữ liệu thời gian thực qua WebSocket
-    const socket = new WebSocket('ws://localhost:3000');
-    let isRealtimeMode = true; // Biến để kiểm soát chế độ realtime
-
-    socket.onmessage = (event) => {
-    const json = JSON.parse(event.data);
-    console.log('Realtime data:', json);
-
-    // Xử lý dữ liệu unified format
-    if (json.temperature !== undefined && json.turbidity !== undefined) {
-        // Dữ liệu sensor (nhiệt độ, độ đục) - chỉ cập nhật biểu đồ khi ở chế độ realtime
-        if (isRealtimeMode) {
-            // Chỉ hiển thị ngày, bỏ giờ
-            const dateOnly = json.timestamp.split(' ')[0] || json.timestamp.split('T')[0];
-            labels.push(dateOnly);
-            tempData.push(json.temperature);
-            turbData.push(json.turbidity);
-
-            // Chỉ giữ lại 10 điểm gần nhất
-            if (labels.length > 10) {
-                labels.shift();
-                tempData.shift();
-                turbData.shift();
-            }
-
-            myChart.update();
-        }
-    }
-
-    // Cập nhật trạng thái thiết bị (luôn cập nhật, không phụ thuộc vào realtime mode)
-    if (json.distance !== undefined) {
-        updateFoodLevel(json.distance);
-    }
-    
-    if (json.PIR !== undefined) {
-        updatePersonDetection(json.PIR);
-    }
-    };
-
-
-    // 📥 Tải dữ liệu cũ từ Firebase thông qua server
-    async function loadHistory() {
-        const from = document.getElementById('from-date').value;
-        const to = document.getElementById('to-date').value;
-        if (!from || !to) {
-        alert('Vui lòng chọn cả ngày bắt đầu và kết thúc!');
-        return;
-        }
-
-        // Tắt chế độ realtime khi lọc dữ liệu
-        isRealtimeMode = false;
-
-        try {
-            const response = await fetch(`http://localhost:3000/data_sensor?from=${from}&to=${to}`);
-            
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            
-            const data = await response.json();
-            console.log('Dữ liệu lịch sử:', data);
-
-            // Xoá dữ liệu cũ trên biểu đồ
-            labels.length = 0;
-            tempData.length = 0;
-            turbData.length = 0;
-
-            data.forEach(d => {
-            // Chỉ hiển thị ngày, bỏ giờ
-            const dateOnly = d.timestamp.split(' ')[0] || d.timestamp.split('T')[0];
-            labels.push(dateOnly);
-            tempData.push(d.temperature);
-            turbData.push(d.turbidity);
-            });
-
-            myChart.update();
-        } catch (error) {
-            console.error('Lỗi khi tải dữ liệu:', error);
-            alert('Không thể tải dữ liệu. Vui lòng kiểm tra server!');
-            // Bật lại realtime nếu có lỗi
-            isRealtimeMode = true;
-        }
-    }
-
-    function enableRealtime() {
-        isRealtimeMode = true;
-        
-        labels.length = 0;
-        tempData.length = 0;
-        turbData.length = 0;
-
-        // Tự động cập nhật ngày hôm qua và hôm nay
-        const today = new Date();
-        const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
-        
-        // Chuyển đổi thành định dạng YYYY-MM-DD theo múi giờ địa phương
-        const formatDate = (date) => {
-            const year = date.getFullYear();
-            const month = String(date.getMonth() + 1).padStart(2, '0');
-            const day = String(date.getDate()).padStart(2, '0');
-            return `${year}-${month}-${day}`;
-        };
-        
-        document.getElementById('to-date').value = formatDate(today);
-        document.getElementById('from-date').value = formatDate(yesterday);
-
-        myChart.update();
-        console.log('Đã bật chế độ thời gian thực');
-    }
-
-    // 🎛️ Hàm điều khiển servo
-    async function controlServo(value) {
-        try {
-            const statusElement = document.getElementById('servo-status');
-            statusElement.textContent = 'Đang gửi lệnh...';
-            statusElement.style.color = 'orange';
-
-            const response = await fetch('http://localhost:3000/control/servo', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ value: value })
-            });
-
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-
-            const result = await response.json();
-            console.log('Servo control result:', result);
-            
-            // Cập nhật trạng thái
-            statusElement.textContent = value === 1 ? 'Servo: BẬT' : 'Servo: TẮT';
-            statusElement.style.color = value === 1 ? 'green' : 'red';
-            
-        } catch (error) {
-            console.error('Lỗi khi điều khiển servo:', error);
-            const statusElement = document.getElementById('servo-status');
-            statusElement.textContent = 'Lỗi kết nối!';
-            statusElement.style.color = 'red';
-        }
-    }
-
-    // Hàm cập nhật lượng thức ăn dựa vào distance
-    function updateFoodLevel(distanceInCm) {
-        const foodElement = document.getElementById('food-level');
-        
-        if (distanceInCm === undefined || distanceInCm === null) {
-            foodElement.textContent = 'Thức ăn: --';
-            foodElement.style.color = '#999';
-            return;
-        }
-
-        // Chuyển đổi distance từ đơn vị mà sensor trả về (có thể là mm hoặc raw value)
-        // Giả định: distance là giá trị ADC hoặc mm, cần map về cm
-
-        // Tính toán mức thức ăn (distance càng lớn = thức ăn càng ít)
-        let foodLevel;
-        let levelText;
-        let color;
-
-        if (distanceInCm <= 3) {
-            foodLevel = 100;
-            levelText = 'ĐẦY';
-            color = '#4CAF50'; // Xanh lá
-        } else if (distanceInCm <= 6) {
-            foodLevel = 75;
-            levelText = 'NHIỀU';
-            color = '#8BC34A'; // Xanh lá nhạt
-        } else if (distanceInCm <= 10) {
-            foodLevel = 50;
-            levelText = 'TRUNG BÌNH';
-            color = '#FF9800'; // Cam
-        } else if (distanceInCm <= 15) {
-            foodLevel = 25;
-            levelText = 'ÍT';
-            color = '#FF5722'; // Cam đỏ
-        } else {
-            foodLevel = 0;
-            levelText = 'HẾT';
-            color = '#F44336'; // Đỏ
-        }
-
-        foodElement.textContent = `Thức ăn: ${levelText} (${distanceInCm.toFixed(1)}cm)`;
-        foodElement.style.color = color;
-
-        // Cảnh báo khi hết thức ăn
-        if (foodLevel <= 25) {
-            foodElement.style.fontWeight = 'bold';
-            if (foodLevel === 0) {
-                foodElement.style.animation = 'blink 1s infinite';
-            }
-        } else {
-            foodElement.style.animation = 'none';
-        }
-    }
-
-    // 👤 Hàm cập nhật phát hiện người
-    function updatePersonDetection(pirValue) {
-        const personElement = document.getElementById('person-detection');
-        
-        if (pirValue === undefined || pirValue === null) {
-            personElement.textContent = 'Người: --';
-            personElement.style.color = '#999';
-            return;
-        }
-
-        // PIR sensor: 1 = có chuyển động, 0 = không có chuyển động
-        if (pirValue === 1 || pirValue === '1' || pirValue === true) {
-            personElement.textContent = 'Người: CÓ NGƯỜI';
-            personElement.style.color = '#4CAF50'; // Xanh lá
-            personElement.style.fontWeight = 'bold';
-        } else {
-            personElement.textContent = 'Người: KHÔNG CÓ';
-            personElement.style.color = '#999'; // Xám
-            personElement.style.fontWeight = 'normal';
-        }
-    }
-
-    // 🕒 Tự động set ngày hôm nay và hôm qua
-    window.onload = () => {
-        const today = new Date();
-        const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
-        
-        // Chuyển đổi thành định dạng YYYY-MM-DD theo múi giờ địa phương
-        const formatDate = (date) => {
-            const year = date.getFullYear();
-            const month = String(date.getMonth() + 1).padStart(2, '0');
-            const day = String(date.getDate()).padStart(2, '0');
-            return `${year}-${month}-${day}`;
-        };
-        
-        document.getElementById('to-date').value = formatDate(today);
-        document.getElementById('from-date').value = formatDate(yesterday);
-        
-        // Tải trạng thái thiết bị ban đầu
-        loadDeviceStatus();
-    };
-
-    // 📡 Hàm tải trạng thái thiết bị ban đầu
-    async function loadDeviceStatus() {
-        try {
-            const today = new Date();
-            const todayStr = today.getFullYear() + '-' + 
-                           String(today.getMonth() + 1).padStart(2, '0') + '-' + 
-                           String(today.getDate()).padStart(2, '0');
-            
-            // Tải dữ liệu sensor mới nhất để lấy trạng thái thiết bị
-            const response = await fetch(`http://localhost:3000/data_sensor?from=${todayStr}&to=${todayStr}`);
-            
-            if (response.ok) {
-                const data = await response.json();
-                if (data.length > 0) {
-                    const latestStatus = data[data.length - 1]; // Lấy dữ liệu mới nhất
+        <!-- Dashboard Grid -->
+        <div class="dashboard-grid">
+            <!-- Left Panel - Báo Cáo Trại Cá -->
+            <div class="card">
+                <div class="card-title">
+                    <i class="fas fa-chart-line"></i>
+                    Báo Cáo Trại Cá
+                </div>
+                
+                <!-- Status Grid -->
+                <div class="status-grid">
+                    <div class="status-item">
+                        <div class="status-icon">
+                            <i class="fas fa-utensils"></i>
+                        </div>
+                        <div class="status-label">Lượng thức ăn còn lại</div>
+                        <div class="status-value" id="food-percentage">50%</div>
+                        <div class="status-detail" id="food-status">Tốt</div>
+                    </div>
                     
-                    // Cập nhật UI với dữ liệu mới nhất
-                    if (latestStatus.distance !== undefined) {
-                        updateFoodLevel(latestStatus.distance);
-                    }
-                    
-                    if (latestStatus.PIR !== undefined) {
-                        updatePersonDetection(latestStatus.PIR);
-                    }
-                }
-            }
-        } catch (error) {
-            console.log('Không thể tải trạng thái thiết bị ban đầu:', error);
-        }
-    }
-</script>
+                    <div class="status-item">
+                        <div class="status-icon">
+                            <i class="fas fa-tint"></i>
+                        </div>
+                        <div class="status-label">Độ đục của nước</div>
+                        <div class="status-value" id="water-quality">An toàn</div>
+                        <div class="status-detail" id="water-status">Bình thường</div>
+                    </div>
+                </div>
+
+                <!-- Motion Detection -->
+                <div class="status-item" style="margin-bottom: 20px;">
+                    <div class="status-icon">
+                        <i class="fas fa-running"></i>
+                    </div>
+                    <div class="status-label">Dấu hiệu bất thường</div>
+                    <div class="status-value" id="motion-status">Không có</div>
+                </div>
+
+            </div>
+
+            <!-- Right Panel - Bảng Điều Khiển -->
+            <div class="card">
+                <div class="card-title">
+                    <i class="fas fa-cogs"></i>
+                    Bảng Điều Khiển
+                </div>
+
+                <!-- System Status -->
+                <div class="system-status">
+                    <div class="status-indicator active">
+                        <div style="font-weight: bold; color: #4caf50;">Trạng thái hệ thống:</div>
+                        <div>Đang hoạt động</div>
+                    </div>
+                    <div class="status-indicator active">
+                        <div style="font-weight: bold; color: #4caf50;">Thông báo:</div>
+                        <div>Đang bật</div>
+                    </div>
+                </div>
+
+                <!-- Emergency Controls -->
+                <div class="emergency-controls">
+                    <button class="emergency-btn shutdown" onclick="emergencyShutdown()">
+                        <i class="fas fa-power-off"></i>
+                        Tắt hệ thống
+                    </button>
+                    <button class="emergency-btn alert" onclick="sendAlert()">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        Tắt thông báo
+                    </button>
+                </div>
+
+                <!-- Servo Control -->
+                <div class="control-panel">
+                    <div class="control-label">Điều khiển Servo:</div>
+                    <div class="control-buttons">
+                        <button class="btn btn-success" onclick="controlServo(1)">
+                            <i class="fas fa-play"></i>
+                            Bật Servo
+                        </button>
+                        <button class="btn btn-danger" onclick="controlServo(0)">
+                            <i class="fas fa-stop"></i>
+                            Tắt Servo
+                        </button>
+                    </div>
+                    <div id="servo-status" style="margin-top: 10px; font-weight: bold;"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Chart and Controls -->
+        <div class="card">
+            <div class="card-title">
+                <i class="fas fa-chart-area"></i>
+                Biểu đồ nhiệt độ và độ đục theo thời gian
+            </div>
+            
+            <!-- Date Controls -->
+            <div class="control-panel">
+                <div class="control-group">
+                    <label class="control-label">Chọn khoảng thời gian:</label>
+                    <div class="control-buttons">
+                        <input type="date" id="from-date">
+                        <span style="margin: 0 10px; align-self: center;">đến</span>
+                        <input type="date" id="to-date">
+                        <button class="btn btn-primary" onclick="loadHistory()">
+                            <i class="fas fa-filter"></i>
+                            Lọc dữ liệu
+                        </button>
+                        <button class="btn btn-success" onclick="enableRealtime()">
+                            <i class="fas fa-broadcast-tower"></i>
+                            Thời gian thực
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Chart Container -->
+            <div class="chart-container">
+                <canvas id="myChart" width="600" height="300"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <script src="main.js"></script>
 </body>
 </html>

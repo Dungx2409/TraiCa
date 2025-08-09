@@ -15,8 +15,12 @@ function setupMQTT(wsList) {
   mqttClient.on('message', (topic, message) => {
     const data = JSON.parse(message.toString());
     console.log("MQTT Received:", data);
+    
+    // Lưu vào Firebase
     push(ref(db, 'data_sensor'), data);
 
+
+    // Gửi qua WebSocket
     wsClients.forEach(ws => {
       if (ws.readyState === 1) ws.send(JSON.stringify(data));
     });
