@@ -1,16 +1,18 @@
 const mqtt = require('mqtt');
 const { db, ref, push } = require('./firebase');
 let wsClients = [];
+let mqttClient = null; // Lưu client để sử dụng cho publish
 
 function setupMQTT(wsList) {
   wsClients = wsList;
-  const client = mqtt.connect('mqtt://broker.hivemq.com');
+  mqttClient = mqtt.connect('mqtt://broker.hivemq.com');
 
-  client.on('connect', () => {
-    client.subscribe('/sensor/data');
+  mqttClient.on('connect', () => {
+    mqttClient.subscribe('/sensor/data');
+    console.log('MQTT connected and subscribed to /sensor/data');
   });
 
-  client.on('message', (topic, message) => {
+  mqttClient.on('message', (topic, message) => {
     const data = JSON.parse(message.toString());
     console.log("MQTT Received:", data);
     push(ref(db, 'data_sensor'), data);
@@ -21,4 +23,19 @@ function setupMQTT(wsList) {
   });
 }
 
-module.exports = { setupMQTT };
+// Hàm để gửi lệnh điều khiển servo
+function publishServoControl(value) {
+  if (mqttClient && mqttClient.connected) {
+    const controlMessage = {
+      servo: value,
+      timestamp: new Date().toISOString()
+    };
+    
+    mqttClient.publish('/control/servo', JSON.stringify(controlMessage));
+    console.log(`Published servo control: ${value} to /control/servo`);
+  } else {
+    console.error('MQTT client not connected, cannot send servo control');
+  }
+}
+
+module.exports = { setupMQTT, publishServoControl };

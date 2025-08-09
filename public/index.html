@@ -7,6 +7,18 @@
     <style>
     body { font-family: sans-serif; margin: 20px; }
     .controls { margin-bottom: 10px; display: flex; gap: 10px; flex-wrap: wrap; }
+    
+    @keyframes blink {
+        0%, 50% { opacity: 1; }
+        51%, 100% { opacity: 0.3; }
+    }
+    
+    .status-container {
+        background-color: #f5f5f5;
+        padding: 10px;
+        border-radius: 5px;
+        margin-bottom: 10px;
+    }
     </style>
 </head>
 <body>
@@ -17,6 +29,19 @@
         <label>Đến: <input type="date" id="to-date"></label>
         <button onclick="loadHistory()">Lọc dữ liệu</button>
         <button onclick="enableRealtime()">Chế độ thời gian thực</button>
+    </div>
+
+    <div class="controls">
+        <label>Điều khiển Servo:</label>
+        <button onclick="controlServo(1)" style="background-color: #4CAF50; color: white; margin-right: 5px;">Bật Servo (1)</button>
+        <button onclick="controlServo(0)" style="background-color: #f44336; color: white;">Tắt Servo (0)</button>
+        <span id="servo-status" style="margin-left: 10px; font-weight: bold;"></span>
+    </div>
+
+    <div class="controls">
+        <label>Trạng thái hệ thống:</label>
+        <span id="food-level" style="margin-right: 15px; font-weight: bold; color: #2196F3;">Thức ăn: --</span>
+        <span id="person-detection" style="font-weight: bold; color: #FF9800;">Người: --</span>
     </div>
 
     <canvas id="myChart" width="600" height="300"></canvas>
@@ -68,26 +93,40 @@
     let isRealtimeMode = true; // Biến để kiểm soát chế độ realtime
 
     socket.onmessage = (event) => {
-    if (!isRealtimeMode) return; // Bỏ qua nếu không ở chế độ realtime
-
     const json = JSON.parse(event.data);
-    console.log('Realtime:', json);
+    console.log('Realtime data:', json);
 
-    // Chỉ hiển thị ngày, bỏ giờ
-    const dateOnly = json.timestamp.split(' ')[0] || json.timestamp.split('T')[0];
-    labels.push(dateOnly);
-    tempData.push(json.temperature);
-    turbData.push(json.turbidity);
+    // Xử lý dữ liệu unified format
+    if (json.temperature !== undefined && json.turbidity !== undefined) {
+        // Dữ liệu sensor (nhiệt độ, độ đục) - chỉ cập nhật biểu đồ khi ở chế độ realtime
+        if (isRealtimeMode) {
+            // Chỉ hiển thị ngày, bỏ giờ
+            const dateOnly = json.timestamp.split(' ')[0] || json.timestamp.split('T')[0];
+            labels.push(dateOnly);
+            tempData.push(json.temperature);
+            turbData.push(json.turbidity);
 
-    // Chỉ giữ lại 10 điểm gần nhất
-    if (labels.length > 10) {
-        labels.shift();
-        tempData.shift();
-        turbData.shift();
+            // Chỉ giữ lại 10 điểm gần nhất
+            if (labels.length > 10) {
+                labels.shift();
+                tempData.shift();
+                turbData.shift();
+            }
+
+            myChart.update();
+        }
     }
 
-    myChart.update();
+    // Cập nhật trạng thái thiết bị (luôn cập nhật, không phụ thuộc vào realtime mode)
+    if (json.distance !== undefined) {
+        updateFoodLevel(json.distance);
+    }
+    
+    if (json.PIR !== undefined) {
+        updatePersonDetection(json.PIR);
+    }
     };
+
 
     // 📥 Tải dữ liệu cũ từ Firebase thông qua server
     async function loadHistory() {
@@ -123,6 +162,7 @@
             tempData.push(d.temperature);
             turbData.push(d.turbidity);
             });
+
             myChart.update();
         } catch (error) {
             console.error('Lỗi khi tải dữ liệu:', error);
@@ -158,7 +198,117 @@
         console.log('Đã bật chế độ thời gian thực');
     }
 
-    // �🕒 Tự động set ngày hôm nay và hôm qua
+    // 🎛️ Hàm điều khiển servo
+    async function controlServo(value) {
+        try {
+            const statusElement = document.getElementById('servo-status');
+            statusElement.textContent = 'Đang gửi lệnh...';
+            statusElement.style.color = 'orange';
+
+            const response = await fetch('http://localhost:3000/control/servo', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ value: value })
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const result = await response.json();
+            console.log('Servo control result:', result);
+            
+            // Cập nhật trạng thái
+            statusElement.textContent = value === 1 ? 'Servo: BẬT' : 'Servo: TẮT';
+            statusElement.style.color = value === 1 ? 'green' : 'red';
+            
+        } catch (error) {
+            console.error('Lỗi khi điều khiển servo:', error);
+            const statusElement = document.getElementById('servo-status');
+            statusElement.textContent = 'Lỗi kết nối!';
+            statusElement.style.color = 'red';
+        }
+    }
+
+    // Hàm cập nhật lượng thức ăn dựa vào distance
+    function updateFoodLevel(distanceInCm) {
+        const foodElement = document.getElementById('food-level');
+        
+        if (distanceInCm === undefined || distanceInCm === null) {
+            foodElement.textContent = 'Thức ăn: --';
+            foodElement.style.color = '#999';
+            return;
+        }
+
+        // Chuyển đổi distance từ đơn vị mà sensor trả về (có thể là mm hoặc raw value)
+        // Giả định: distance là giá trị ADC hoặc mm, cần map về cm
+
+        // Tính toán mức thức ăn (distance càng lớn = thức ăn càng ít)
+        let foodLevel;
+        let levelText;
+        let color;
+
+        if (distanceInCm <= 3) {
+            foodLevel = 100;
+            levelText = 'ĐẦY';
+            color = '#4CAF50'; // Xanh lá
+        } else if (distanceInCm <= 6) {
+            foodLevel = 75;
+            levelText = 'NHIỀU';
+            color = '#8BC34A'; // Xanh lá nhạt
+        } else if (distanceInCm <= 10) {
+            foodLevel = 50;
+            levelText = 'TRUNG BÌNH';
+            color = '#FF9800'; // Cam
+        } else if (distanceInCm <= 15) {
+            foodLevel = 25;
+            levelText = 'ÍT';
+            color = '#FF5722'; // Cam đỏ
+        } else {
+            foodLevel = 0;
+            levelText = 'HẾT';
+            color = '#F44336'; // Đỏ
+        }
+
+        foodElement.textContent = `Thức ăn: ${levelText} (${distanceInCm.toFixed(1)}cm)`;
+        foodElement.style.color = color;
+
+        // Cảnh báo khi hết thức ăn
+        if (foodLevel <= 25) {
+            foodElement.style.fontWeight = 'bold';
+            if (foodLevel === 0) {
+                foodElement.style.animation = 'blink 1s infinite';
+            }
+        } else {
+            foodElement.style.animation = 'none';
+        }
+    }
+
+    // 👤 Hàm cập nhật phát hiện người
+    function updatePersonDetection(pirValue) {
+        const personElement = document.getElementById('person-detection');
+        
+        if (pirValue === undefined || pirValue === null) {
+            personElement.textContent = 'Người: --';
+            personElement.style.color = '#999';
+            return;
+        }
+
+        // PIR sensor: 1 = có chuyển động, 0 = không có chuyển động
+        if (pirValue === 1 || pirValue === '1' || pirValue === true) {
+            personElement.textContent = 'Người: CÓ NGƯỜI';
+            personElement.style.color = '#4CAF50'; // Xanh lá
+            personElement.style.fontWeight = 'bold';
+        } else {
+            personElement.textContent = 'Người: KHÔNG CÓ';
+            personElement.style.color = '#999'; // Xám
+            personElement.style.fontWeight = 'normal';
+        }
+    }
+
+    // 🕒 Tự động set ngày hôm nay và hôm qua
     window.onload = () => {
         const today = new Date();
         const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
@@ -173,7 +323,41 @@
         
         document.getElementById('to-date').value = formatDate(today);
         document.getElementById('from-date').value = formatDate(yesterday);
+        
+        // Tải trạng thái thiết bị ban đầu
+        loadDeviceStatus();
     };
+
+    // 📡 Hàm tải trạng thái thiết bị ban đầu
+    async function loadDeviceStatus() {
+        try {
+            const today = new Date();
+            const todayStr = today.getFullYear() + '-' + 
+                           String(today.getMonth() + 1).padStart(2, '0') + '-' + 
+                           String(today.getDate()).padStart(2, '0');
+            
+            // Tải dữ liệu sensor mới nhất để lấy trạng thái thiết bị
+            const response = await fetch(`http://localhost:3000/data_sensor?from=${todayStr}&to=${todayStr}`);
+            
+            if (response.ok) {
+                const data = await response.json();
+                if (data.length > 0) {
+                    const latestStatus = data[data.length - 1]; // Lấy dữ liệu mới nhất
+                    
+                    // Cập nhật UI với dữ liệu mới nhất
+                    if (latestStatus.distance !== undefined) {
+                        updateFoodLevel(latestStatus.distance);
+                    }
+                    
+                    if (latestStatus.PIR !== undefined) {
+                        updatePersonDetection(latestStatus.PIR);
+                    }
+                }
+            }
+        } catch (error) {
+            console.log('Không thể tải trạng thái thiết bị ban đầu:', error);
+        }
+    }
 </script>
 </body>
 </html>
