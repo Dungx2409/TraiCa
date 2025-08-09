@@ -40,7 +40,9 @@ const myChart = new Chart(ctx, {
 });
 
 // 📡 Nhận dữ liệu thời gian thực qua WebSocket
-const socket = new WebSocket('ws://localhost:3000');
+// const socket = new WebSocket('ws://localhost:3000');
+const socket = new WebSocket('wss://myproject.onrender.com');
+
 let isRealtimeMode = true; // Biến để kiểm soát chế độ realtime
 
 socket.onmessage = (event) => {
@@ -95,8 +97,9 @@ async function loadHistory() {
     isRealtimeMode = false;
 
     try {
-        const response = await fetch(`http://localhost:3000/data_sensor?from=${from}&to=${to}`);
-        
+
+        const response = await fetch(`https://traica.onrender.com/data_sensor?from=${from}&to=${to}`);
+
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
@@ -159,7 +162,7 @@ async function controlServo(value) {
         statusElement.textContent = 'Đang gửi lệnh...';
         statusElement.style.color = 'orange';
 
-        const response = await fetch('http://localhost:3000/control/servo', {
+        const response = await fetch('https://traica.onrender.com/control/servo', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -394,8 +397,8 @@ async function loadDeviceStatus() {
                        String(today.getDate()).padStart(2, '0');
         
         // Tải dữ liệu sensor mới nhất để lấy trạng thái thiết bị
-        const response = await fetch(`http://localhost:3000/data_sensor?from=${todayStr}&to=${todayStr}`);
-        
+        const response = await fetch(`https://traica.onrender.com/data_sensor?from=${todayStr}&to=${todayStr}`);
+
         if (response.ok) {
             const data = await response.json();
             if (data.length > 0) {
