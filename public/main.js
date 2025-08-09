@@ -39,10 +39,8 @@ const myChart = new Chart(ctx, {
     }
 });
 
-// 📡 Nhận dữ liệu thời gian thực qua WebSocket
-// const socket = new WebSocket('ws://localhost:3000');
-const socket = new WebSocket('wss://myproject.onrender.com');
-
+//Nhận dữ liệu thời gian thực qua WebSocket
+const socket = new WebSocket('ws://localhost:3000');
 let isRealtimeMode = true; // Biến để kiểm soát chế độ realtime
 
 socket.onmessage = (event) => {
@@ -84,7 +82,7 @@ socket.onmessage = (event) => {
     }
 };
 
-// 📥 Tải dữ liệu cũ từ Firebase thông qua server
+//Tải dữ liệu cũ từ Firebase thông qua server
 async function loadHistory() {
     const from = document.getElementById('from-date').value;
     const to = document.getElementById('to-date').value;
@@ -97,9 +95,8 @@ async function loadHistory() {
     isRealtimeMode = false;
 
     try {
-
-        const response = await fetch(`https://traica.onrender.com/data_sensor?from=${from}&to=${to}`);
-
+        const response = await fetch(`http://localhost:3000/data_sensor?from=${from}&to=${to}`);
+        
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
@@ -162,7 +159,7 @@ async function controlServo(value) {
         statusElement.textContent = 'Đang gửi lệnh...';
         statusElement.style.color = 'orange';
 
-        const response = await fetch('https://traica.onrender.com/control/servo', {
+        const response = await fetch('http://localhost:3000/control/servo', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -303,7 +300,8 @@ let notificationEnabled = true;
 
 function sendAlert() {
     console.log('Tắt thông báo');
-
+    
+    // Cập nhật trạng thái thông báo
     notificationEnabled = false;
     
     // Tìm và cập nhật element hiển thị trạng thái thông báo
@@ -397,8 +395,8 @@ async function loadDeviceStatus() {
                        String(today.getDate()).padStart(2, '0');
         
         // Tải dữ liệu sensor mới nhất để lấy trạng thái thiết bị
-        const response = await fetch(`https://traica.onrender.com/data_sensor?from=${todayStr}&to=${todayStr}`);
-
+        const response = await fetch(`http://localhost:3000/data_sensor?from=${todayStr}&to=${todayStr}`);
+        
         if (response.ok) {
             const data = await response.json();
             if (data.length > 0) {
